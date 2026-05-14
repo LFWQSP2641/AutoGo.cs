@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="AutoGo.Tests/AutoGo.Tests.csproj" Id="100e409a-f017-49e8-bbf1-9bdd31bdca00" />
+  <Project Path="AutoGo/AutoGo.csproj" />
+</Solution>
