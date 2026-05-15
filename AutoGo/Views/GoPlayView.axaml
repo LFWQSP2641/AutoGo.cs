@@ -90,9 +90,22 @@
                 Command="{Binding KataGoPlayTheBestCommand}"
                 Content="PlayBestMove"
                 IsEnabled="{Binding !IsAnalyzing}" />
-            <Button Margin="4" Content="Pass" />
-            <Button Margin="4" Content="Undo" />
-            <Button Margin="4" Content="Restart" />
+            <Button
+                Margin="4"
+                Command="{Binding PassTurnCommand}"
+                Content="Pass" />
+            <Button
+                Margin="4"
+                Content="Undo"
+                IsEnabled="False" />
+            <Button
+                Margin="4"
+                Command="{Binding ResetGameCommand}"
+                Content="Restart" />
+            <CheckBox
+                Margin="4"
+                Content="Auto Reply"
+                IsChecked="{Binding KataGoAutoReply}" />
         </WrapPanel>
     </Grid>
 

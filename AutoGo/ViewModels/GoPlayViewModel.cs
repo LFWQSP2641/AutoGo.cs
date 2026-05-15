@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
@@ -20,7 +21,6 @@ public partial class GoPlayViewModel : ViewModelBase
     private readonly KataGoProcess _kataGoProcess = new();
     private readonly StringBuilder _logBuilder = new();
     private readonly List<MoveRecord> _moveHistory = [];
-    private bool _isPlayTheBestEnabled = true;
     private CancellationTokenSource? _kataGoCts;
     private KataGoService? _kataGoService;
 
@@ -34,25 +34,55 @@ public partial class GoPlayViewModel : ViewModelBase
 
     [ObservableProperty] public partial bool IsAnalyzing { get; set; } = false;
 
+    [ObservableProperty] public partial bool KataGoAutoReply { get; set; } = false;
+
     [RelayCommand]
-    private void HandlePointClicked(BoardCoords coords)
+    private async Task HandlePointClicked(BoardCoords coords)
     {
-        if (BoardData[coords.X, coords.Y] != EStoneType.None)
+        if (KataGoPlayTheBestCommand.IsRunning)
         {
             return;
         }
 
-        var moveRecord = new MoveRecord(CurrentPlayer, coords);
-        var newBoard = CheckAndPlay(BoardData, moveRecord, _moveHistory.LastOrDefault());
-        if (newBoard == null)
+        TryPlay(coords);
+        if (KataGoAutoReply)
         {
-            return;
+            await KataGoPlayTheBestCommand.ExecuteAsync(null);
         }
+    }
 
-        BoardData = newBoard;
+    [RelayCommand]
+    private void PassTurn()
+    {
+        var moveRecord = new MoveRecord(CurrentPlayer, null);
+        BoardData = CheckAndPlay(BoardData, moveRecord, _moveHistory.LastOrDefault()) ?? BoardData;
         CurrentPlayer = CurrentPlayer == EStoneType.Black ? EStoneType.White : EStoneType.Black;
         AnalysisPoints = [];
         _moveHistory.Add(moveRecord);
+        // _moveHistory remove equal trailing pass moves
+        while (_moveHistory.Count >= 2
+               && _moveHistory[^1].IsPass
+               && _moveHistory[^2].IsPass)
+        {
+            _moveHistory.RemoveAt(_moveHistory.Count - 1);
+        }
+    }
+
+    [RelayCommand]
+    private void ResetGame()
+    {
+        BoardData = new EStoneType[19, 19];
+        CurrentPlayer = EStoneType.Black;
+        AnalysisPoints = [];
+        _moveHistory.Clear();
+    }
+
+    [RelayCommand]
+    private void UndoMove()
+    {
+        // Not planned
+        // Implement game state tree management first.
+        throw new NotImplementedException();
     }
 
     [RelayCommand]
@@ -92,8 +122,17 @@ public partial class GoPlayViewModel : ViewModelBase
             }
         };
         PropertyChanged += handler;
-        await KataGoAnalyzeAsync();
-        await tcs.Task;
+
+        var token = KataGoPlayTheBestCommand.ExecutionTask?.AsyncState as CancellationTokenSource;
+        try
+        {
+            await KataGoAnalyzeAsync();
+            await tcs.Task;
+        }
+        finally
+        {
+            PropertyChanged -= handler;
+        }
         return;
 
         void PlayBestMove()
@@ -101,7 +140,7 @@ public partial class GoPlayViewModel : ViewModelBase
             if (AnalysisPoints.Any())
             {
                 var bestCoords = AnalysisPoints.First().Coords;
-                HandlePointClicked(bestCoords);
+                TryPlay(bestCoords);
             }
         }
     }
@@ -131,6 +170,26 @@ public partial class GoPlayViewModel : ViewModelBase
         _kataGoCts = new CancellationTokenSource();
         _ = MonitorAnalysisAsync(_kataGoCts.Token);
         return true;
+    }
+
+    private void TryPlay(BoardCoords coords)
+    {
+        if (BoardData[coords.X, coords.Y] != EStoneType.None)
+        {
+            return;
+        }
+
+        var moveRecord = new MoveRecord(CurrentPlayer, coords);
+        var newBoard = CheckAndPlay(BoardData, moveRecord, _moveHistory.LastOrDefault());
+        if (newBoard == null)
+        {
+            return;
+        }
+
+        BoardData = newBoard;
+        CurrentPlayer = CurrentPlayer == EStoneType.Black ? EStoneType.White : EStoneType.Black;
+        AnalysisPoints = [];
+        _moveHistory.Add(moveRecord);
     }
 
     private static EStoneType[,]? CheckAndPlay(EStoneType[,] board, MoveRecord nextMove, MoveRecord? lastMove = null)
