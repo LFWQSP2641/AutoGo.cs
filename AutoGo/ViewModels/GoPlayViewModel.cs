@@ -28,6 +28,8 @@ public partial class GoPlayViewModel : ViewModelBase
 
     [ObservableProperty] public partial EStoneType CurrentPlayer { get; set; } = EStoneType.Black;
 
+    [ObservableProperty] public partial BoardCoords? LastMoveCoords { get; set; }
+
     [ObservableProperty] public partial string LogText { get; set; } = string.Empty;
 
     [ObservableProperty] public partial IEnumerable<AnalysisPoint> AnalysisPoints { get; set; } = [];
@@ -57,6 +59,7 @@ public partial class GoPlayViewModel : ViewModelBase
         var moveRecord = new MoveRecord(CurrentPlayer, null);
         BoardData = CheckAndPlay(BoardData, moveRecord, _moveHistory.LastOrDefault()) ?? BoardData;
         CurrentPlayer = CurrentPlayer == EStoneType.Black ? EStoneType.White : EStoneType.Black;
+        LastMoveCoords = null;
         AnalysisPoints = [];
         _moveHistory.Add(moveRecord);
         // _moveHistory remove equal trailing pass moves
@@ -73,6 +76,7 @@ public partial class GoPlayViewModel : ViewModelBase
     {
         BoardData = new EStoneType[19, 19];
         CurrentPlayer = EStoneType.Black;
+        LastMoveCoords = null;
         AnalysisPoints = [];
         _moveHistory.Clear();
     }
@@ -188,6 +192,7 @@ public partial class GoPlayViewModel : ViewModelBase
 
         BoardData = newBoard;
         CurrentPlayer = CurrentPlayer == EStoneType.Black ? EStoneType.White : EStoneType.Black;
+        LastMoveCoords = coords;
         AnalysisPoints = [];
         _moveHistory.Add(moveRecord);
     }

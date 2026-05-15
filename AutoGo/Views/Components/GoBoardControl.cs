@@ -20,6 +20,9 @@ public class GoBoardControl : Control
     public static readonly StyledProperty<EStoneType?> CurrentPlayerProperty =
         AvaloniaProperty.Register<GoBoardControl, EStoneType?>(nameof(CurrentPlayer));
 
+    public static readonly StyledProperty<BoardCoords?> LastMoveProperty =
+        AvaloniaProperty.Register<GoBoardControl, BoardCoords?>(nameof(LastMove));
+
     public static readonly StyledProperty<ICommand?> PointClickedCommandProperty =
         AvaloniaProperty.Register<GoBoardControl, ICommand?>(nameof(PointClickedCommand));
 
@@ -30,7 +33,8 @@ public class GoBoardControl : Control
 
     static GoBoardControl()
     {
-        AffectsRender<GoBoardControl>(BoardDataProperty, CurrentPlayerProperty, AnalysisPointsProperty);
+        AffectsRender<GoBoardControl>(BoardDataProperty, CurrentPlayerProperty, LastMoveProperty,
+            AnalysisPointsProperty);
     }
 
     public EStoneType[,] BoardData
@@ -43,6 +47,12 @@ public class GoBoardControl : Control
     {
         get => GetValue(CurrentPlayerProperty);
         set => SetValue(CurrentPlayerProperty, value);
+    }
+
+    public BoardCoords? LastMove
+    {
+        get => GetValue(LastMoveProperty);
+        set => SetValue(LastMoveProperty, value);
     }
 
     public ICommand? PointClickedCommand
@@ -118,6 +128,29 @@ public class GoBoardControl : Control
                 var center = Offset(geo.GetPixel(x, y));
                 context.DrawEllipse(brush, linePen, center, step * 0.45, step * 0.45);
             }
+        }
+
+        // Draw a triangle hover indicator for the last move
+        if (LastMove is { X: var lx, Y: var ly })
+        {
+            var center = Offset(geo.GetPixel(lx, ly));
+            var triangleSize = step * 0.4;
+            var triangleColor = BoardData[lx, ly] == EStoneType.Black ? Colors.White : Colors.Black;
+            var points = new[]
+            {
+                new Point(center.X, center.Y),
+                new Point(center.X + triangleSize, center.Y),
+                new Point(center.X, center.Y + triangleSize),
+            };
+            var geometry = new StreamGeometry();
+            using (var ctx = geometry.Open())
+            {
+                ctx.BeginFigure(points[0]);
+                ctx.LineTo(points[1]);
+                ctx.LineTo(points[2]);
+                ctx.EndFigure(true);
+            }
+            context.DrawGeometry(new SolidColorBrush(triangleColor), null, geometry);
         }
 
         MoveRecord? hoverMove = null;

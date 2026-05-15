@@ -24,6 +24,7 @@
             AnalysisPoints="{Binding AnalysisPoints}"
             BoardData="{Binding BoardData}"
             CurrentPlayer="{Binding CurrentPlayer}"
+            LastMove="{Binding LastMoveCoords}"
             PointClickedCommand="{Binding HandlePointClickedCommand}" />
 
         <GridSplitter
