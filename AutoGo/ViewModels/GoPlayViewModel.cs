@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -6,6 +7,7 @@ using System.Threading.Tasks;
 using AutoGo.Enums;
 using AutoGo.Infra;
 using AutoGo.Models;
+using AutoGo.Models.Dto;
 using AutoGo.Service;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -18,6 +20,7 @@ public partial class GoPlayViewModel : ViewModelBase
     private readonly KataGoProcess _kataGoProcess = new();
     private readonly StringBuilder _logBuilder = new();
     private readonly List<MoveRecord> _moveHistory = [];
+    private bool _isPlayTheBestEnabled = true;
     private CancellationTokenSource? _kataGoCts;
     private KataGoService? _kataGoService;
 
@@ -27,7 +30,9 @@ public partial class GoPlayViewModel : ViewModelBase
 
     [ObservableProperty] public partial string LogText { get; set; } = string.Empty;
 
-    [ObservableProperty] public partial List<AnalysisPoint> AnalysisPoints { get; set; } = [];
+    [ObservableProperty] public partial IEnumerable<AnalysisPoint> AnalysisPoints { get; set; } = [];
+
+    [ObservableProperty] public partial bool IsAnalyzing { get; set; } = false;
 
     [RelayCommand]
     private void HandlePointClicked(BoardCoords coords)
@@ -57,7 +62,48 @@ public partial class GoPlayViewModel : ViewModelBase
         {
             return;
         }
+        IsAnalyzing = true;
         await _kataGoService!.SendAnalysis(_moveHistory);
+    }
+
+    [RelayCommand]
+    private async Task KataGoPlayTheBestAsync()
+    {
+        if (!await InitKataGo())
+        {
+            return;
+        }
+        if (!IsAnalyzing && AnalysisPoints.Any())
+        {
+            PlayBestMove();
+            return;
+        }
+
+        // else analysis and listen `IsAnalyzing` change
+        var tcs = new TaskCompletionSource();
+        PropertyChangedEventHandler handler = null!;
+        handler = (sender, args) =>
+        {
+            if (args.PropertyName == nameof(IsAnalyzing) && !IsAnalyzing)
+            {
+                PropertyChanged -= handler;
+                PlayBestMove();
+                tcs.TrySetResult();
+            }
+        };
+        PropertyChanged += handler;
+        await KataGoAnalyzeAsync();
+        await tcs.Task;
+        return;
+
+        void PlayBestMove()
+        {
+            if (AnalysisPoints.Any())
+            {
+                var bestCoords = AnalysisPoints.First().Coords;
+                HandlePointClicked(bestCoords);
+            }
+        }
     }
 
     private async Task<bool> InitKataGo()
@@ -81,6 +127,7 @@ public partial class GoPlayViewModel : ViewModelBase
             return false;
         }
         _kataGoService = new KataGoService(_kataGoProcess);
+        _kataGoService.OnErrorResponseReceived += OnErrorResponseReceived;
         _kataGoCts = new CancellationTokenSource();
         _ = MonitorAnalysisAsync(_kataGoCts.Token);
         return true;
@@ -253,7 +300,29 @@ public partial class GoPlayViewModel : ViewModelBase
         {
             var analysisPoints = AnalysisPoint.FromKataGoMoveInfos(result.MoveInfos);
             AppendLog($"Received analysis result for query {result.Id} with {analysisPoints.Count} move infos.");
-            Dispatcher.UIThread.Invoke(() => { AnalysisPoints = analysisPoints; });
+            Dispatcher.UIThread.Invoke(() =>
+            {
+                AnalysisPoints = analysisPoints;
+                IsAnalyzing = result.IsDuringSearch;
+            });
+        }
+    }
+
+    private void OnErrorResponseReceived(KataGoErrorResponse errorResponse)
+    {
+        IsAnalyzing = false;
+        AppendLog("Received error response from KataGo:");
+        if (!string.IsNullOrEmpty(errorResponse.Error))
+        {
+            AppendLog($"Error: {errorResponse.Error}");
+        }
+        if (!string.IsNullOrEmpty(errorResponse.Warning))
+        {
+            AppendLog($"Warning: {errorResponse.Warning}");
+        }
+        if (!string.IsNullOrEmpty(errorResponse.Field))
+        {
+            AppendLog($"Field: {errorResponse.Field}");
         }
     }
 }

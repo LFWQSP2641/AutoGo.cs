@@ -83,8 +83,13 @@
             <Button
                 Margin="4"
                 Command="{Binding KataGoAnalyzeCommand}"
-                Content="Analysis" />
-            <Button Margin="4" Content="PlayBestMove" />
+                Content="Analysis"
+                IsEnabled="{Binding !IsAnalyzing}" />
+            <Button
+                Margin="4"
+                Command="{Binding KataGoPlayTheBestCommand}"
+                Content="PlayBestMove"
+                IsEnabled="{Binding !IsAnalyzing}" />
             <Button Margin="4" Content="Pass" />
             <Button Margin="4" Content="Undo" />
             <Button Margin="4" Content="Restart" />

@@ -23,8 +23,8 @@ public class GoBoardControl : Control
     public static readonly StyledProperty<ICommand?> PointClickedCommandProperty =
         AvaloniaProperty.Register<GoBoardControl, ICommand?>(nameof(PointClickedCommand));
 
-    public static readonly StyledProperty<List<AnalysisPoint>?> AnalysisPointsProperty =
-        AvaloniaProperty.Register<GoBoardControl, List<AnalysisPoint>?>(nameof(AnalysisPoints));
+    public static readonly StyledProperty<IEnumerable<AnalysisPoint>?> AnalysisPointsProperty =
+        AvaloniaProperty.Register<GoBoardControl, IEnumerable<AnalysisPoint>?>(nameof(AnalysisPoints));
 
     private BoardCoords? _hoverCoords;
 
@@ -51,7 +51,7 @@ public class GoBoardControl : Control
         set => SetValue(PointClickedCommandProperty, value);
     }
 
-    public List<AnalysisPoint>? AnalysisPoints
+    public IEnumerable<AnalysisPoint>? AnalysisPoints
     {
         get => GetValue(AnalysisPointsProperty);
         set => SetValue(AnalysisPointsProperty, value);
@@ -129,7 +129,7 @@ public class GoBoardControl : Control
             hoverMove = new MoveRecord(CurrentPlayer.Value, _hoverCoords);
         }
 
-        if (AnalysisPoints is { Count: > 0 })
+        if (AnalysisPoints is not null && AnalysisPoints.Any())
         {
             if (hoverMove is not null
                 && AnalysisPoints.FirstOrDefault(p => p.Coords == hoverMove.Coords) is

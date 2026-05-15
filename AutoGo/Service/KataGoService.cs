@@ -32,6 +32,7 @@ public class KataGoService : ObservableObject
     }
 
     public ChannelReader<KataGoAnalysisResult> AnalysisReader => _channel.Reader;
+    public event Action<KataGoErrorResponse>? OnErrorResponseReceived;
 
     public async Task SendAnalysis(
         IEnumerable<MoveRecord> moves,
@@ -84,7 +85,7 @@ public class KataGoService : ObservableObject
 
         if (response is KataGoErrorResponse error)
         {
-            Trace.WriteLine($"KataGo Error: {error.Error}");
+            OnErrorResponseReceived?.Invoke(error);
         }
 
         if (!string.IsNullOrEmpty(response.Id) && response.Id != _currentQueryId)
