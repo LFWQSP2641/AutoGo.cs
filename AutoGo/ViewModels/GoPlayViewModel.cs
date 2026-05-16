@@ -18,11 +18,17 @@ namespace AutoGo.ViewModels;
 
 public partial class GoPlayViewModel : ViewModelBase
 {
+    private readonly GameStateManager _gameStateManager = new();
     private readonly KataGoProcess _kataGoProcess = new();
     private readonly StringBuilder _logBuilder = new();
-    private readonly List<MoveRecord> _moveHistory = [];
     private CancellationTokenSource? _kataGoCts;
     private KataGoService? _kataGoService;
+    private GameStateNode _lastGameStateNode;
+
+    public GoPlayViewModel()
+    {
+        _lastGameStateNode = _gameStateManager.CreateRootNode();
+    }
 
     [ObservableProperty] public partial EStoneType[,] BoardData { get; set; } = new EStoneType[19, 19];
 
@@ -46,7 +52,8 @@ public partial class GoPlayViewModel : ViewModelBase
             return;
         }
 
-        TryPlay(coords);
+        var moveRecord = new MoveRecord(CurrentPlayer, coords);
+        TryPlay(moveRecord);
         if (KataGoAutoReply)
         {
             await KataGoPlayTheBestCommand.ExecuteAsync(null);
@@ -57,18 +64,7 @@ public partial class GoPlayViewModel : ViewModelBase
     private void PassTurn()
     {
         var moveRecord = new MoveRecord(CurrentPlayer, null);
-        BoardData = CheckAndPlay(BoardData, moveRecord, _moveHistory.LastOrDefault()) ?? BoardData;
-        CurrentPlayer = CurrentPlayer == EStoneType.Black ? EStoneType.White : EStoneType.Black;
-        LastMoveCoords = null;
-        AnalysisPoints = [];
-        _moveHistory.Add(moveRecord);
-        // _moveHistory remove equal trailing pass moves
-        while (_moveHistory.Count >= 2
-               && _moveHistory[^1].IsPass
-               && _moveHistory[^2].IsPass)
-        {
-            _moveHistory.RemoveAt(_moveHistory.Count - 1);
-        }
+        TryPlay(moveRecord);
     }
 
     [RelayCommand]
@@ -78,15 +74,24 @@ public partial class GoPlayViewModel : ViewModelBase
         CurrentPlayer = EStoneType.Black;
         LastMoveCoords = null;
         AnalysisPoints = [];
-        _moveHistory.Clear();
+        _gameStateManager.Reset();
+        _lastGameStateNode = _gameStateManager.CreateRootNode();
     }
 
     [RelayCommand]
     private void UndoMove()
     {
-        // Not planned
-        // Implement game state tree management first.
-        throw new NotImplementedException();
+        var parentNode = _gameStateManager.GetNodeOrDefault(_lastGameStateNode.ParentId ?? Guid.Empty);
+        if (parentNode is null)
+        {
+            return;
+        }
+        _lastGameStateNode = parentNode;
+        // _gameStateManager.RemoveNode(_lastGameStateNode.Id);
+        BoardData = _lastGameStateNode.BoardStateCache;
+        CurrentPlayer = _lastGameStateNode.Move?.StoneType == EStoneType.Black ? EStoneType.White : EStoneType.Black;
+        LastMoveCoords = _lastGameStateNode.Move?.Coords;
+        AnalysisPoints = [];
     }
 
     [RelayCommand]
@@ -96,8 +101,19 @@ public partial class GoPlayViewModel : ViewModelBase
         {
             return;
         }
+        // await _kataGoService!.SendAnalysis(_moveHistory);
+        var nodePath = _gameStateManager.GetPathToRoot(_lastGameStateNode.Id);
+        var moveHistory = nodePath.Select(node => node.Move).Where(move => move is not null).Select(move => move!)
+            .ToList();
+        //if (moveHistory.Count == 0)
+        //{
+        //    AppendLog("No moves played yet. Cannot analyze.");
+        //    return;
+        //}
+        var rootNode = nodePath.First();
+        var initialMoveHistory = rootNode.InitialMoveHistory;
         IsAnalyzing = true;
-        await _kataGoService!.SendAnalysis(_moveHistory);
+        await _kataGoService!.SendAnalysis(moveHistory, initialMoveHistory);
     }
 
     [RelayCommand]
@@ -141,11 +157,13 @@ public partial class GoPlayViewModel : ViewModelBase
 
         void PlayBestMove()
         {
-            if (AnalysisPoints.Any())
+            if (!AnalysisPoints.Any())
             {
-                var bestCoords = AnalysisPoints.First().Coords;
-                TryPlay(bestCoords);
+                return;
             }
+            var bestCoords = AnalysisPoints.First().Coords;
+            var bestMove = new MoveRecord(CurrentPlayer, bestCoords);
+            TryPlay(bestMove);
         }
     }
 
@@ -176,180 +194,20 @@ public partial class GoPlayViewModel : ViewModelBase
         return true;
     }
 
-    private void TryPlay(BoardCoords coords)
+    private void TryPlay(MoveRecord move)
     {
-        if (BoardData[coords.X, coords.Y] != EStoneType.None)
+        var success = _gameStateManager.TryPlay(_lastGameStateNode.Id, move, out var newGameStateNode);
+        if (!success
+            || newGameStateNode is null)
         {
+            AppendLog($"Failed to play move at {move.Coords} for player {move.StoneType}.");
             return;
         }
-
-        var moveRecord = new MoveRecord(CurrentPlayer, coords);
-        var newBoard = CheckAndPlay(BoardData, moveRecord, _moveHistory.LastOrDefault());
-        if (newBoard == null)
-        {
-            return;
-        }
-
-        BoardData = newBoard;
+        _lastGameStateNode = newGameStateNode;
+        BoardData = newGameStateNode.BoardStateCache;
         CurrentPlayer = CurrentPlayer == EStoneType.Black ? EStoneType.White : EStoneType.Black;
-        LastMoveCoords = coords;
+        LastMoveCoords = move.Coords;
         AnalysisPoints = [];
-        _moveHistory.Add(moveRecord);
-    }
-
-    private static EStoneType[,]? CheckAndPlay(EStoneType[,] board, MoveRecord nextMove, MoveRecord? lastMove = null)
-    {
-        if (nextMove.IsPass)
-        {
-            return board;
-        }
-
-        var coords = nextMove.Coords!.Value;
-        if (coords.X < 0 || coords.X >= 19 || coords.Y < 0 || coords.Y >= 19)
-        {
-            return null;
-        }
-
-        if (board[coords.X, coords.Y] != EStoneType.None)
-        {
-            return null; // Invalid move
-        }
-
-        var boardCopy = (EStoneType[,])board.Clone();
-        var aroundPointList = new List<BoardCoords>
-        {
-            coords with { X = coords.X - 1 },
-            coords with { X = coords.X + 1 },
-            coords with { Y = coords.Y - 1 },
-            coords with { Y = coords.Y + 1 },
-        };
-        // Remove the points that are out of bounds
-        aroundPointList = aroundPointList
-            .Where(aroundPoint => aroundPoint.X is >= 0 and < 19 && aroundPoint.Y is >= 0 and < 19).ToList();
-        // 1. Check the enemy stones around the current move.
-        // 2. If they have no liberties, check whether they can be captured.
-        // 3. If the situation is a ko, return null.
-        // 4. If it is not a ko, capture them.
-        // 5. Check whether the current move has liberties; if not, return null.
-        // 6. If the current move has liberties, return the new board.
-        var enemyType = nextMove.StoneType == EStoneType.Black ? EStoneType.White : EStoneType.Black;
-        var boardAfterMove = (EStoneType[,])boardCopy.Clone();
-        boardAfterMove[coords.X, coords.Y] = nextMove.StoneType;
-        var enemyCapturedMap = new Dictionary<BoardCoords, bool>();
-        foreach (var aroundPoint in aroundPointList)
-        {
-            var visited = new bool[19, 19];
-            if (board[aroundPoint.X, aroundPoint.Y] != enemyType)
-            {
-                continue;
-            }
-
-            var hasLiberties = HasLiberties(boardAfterMove, aroundPoint, enemyType, visited);
-            enemyCapturedMap[aroundPoint] = hasLiberties;
-        }
-
-        var hasEnemyCaptured = enemyCapturedMap.Values.Any(hasLiberties => !hasLiberties);
-        if (hasEnemyCaptured)
-        {
-            // Simple check for ko
-            if (!enemyCapturedMap.GetValueOrDefault(lastMove?.Coords ?? default, true))
-            {
-                var surroundingStones =
-                    GetSurroundingStones(board, lastMove!.Coords!.Value, enemyType, new bool[19, 19]);
-                var hasLibertiesForNextMove =
-                    HasLiberties(boardAfterMove, coords, nextMove.StoneType, new bool[19, 19]);
-                if (surroundingStones.Count == 1
-                    && !hasLibertiesForNextMove)
-                {
-                    return null; // Ko situation
-                }
-            }
-        }
-
-        // Capture enemy stones
-        foreach (var stone in from kvp in enemyCapturedMap
-                 where !kvp.Value
-                 let visited = new bool[19, 19]
-                 select GetSurroundingStones(boardAfterMove, kvp.Key, enemyType, visited)
-                 into surroundingStones
-                 from stone in surroundingStones
-                 select stone)
-        {
-            boardAfterMove[stone.X, stone.Y] = EStoneType.None;
-        }
-
-        if (hasEnemyCaptured)
-        {
-            return boardAfterMove;
-        }
-
-        // Check whether the current move has liberties; if not, return null.
-        var visitedForCurrentMove = new bool[19, 19];
-        var hasLibertiesForCurrentMove =
-            HasLiberties(boardAfterMove, coords, nextMove.StoneType, visitedForCurrentMove);
-        return hasLibertiesForCurrentMove ? boardAfterMove : null;
-    }
-
-    private static bool HasLiberties(EStoneType[,] board, BoardCoords coords, EStoneType stoneType, bool[,] visited)
-    {
-        var (x, y) = coords;
-        if (x < 0 || x >= 19 || y < 0 || y >= 19 || visited[x, y] || board[x, y] != stoneType)
-        {
-            return false;
-        }
-
-        visited[x, y] = true;
-        if ((x > 0 && board[x - 1, y] == EStoneType.None)
-            || (x < 18 && board[x + 1, y] == EStoneType.None)
-            || (y > 0 && board[x, y - 1] == EStoneType.None)
-            || (y < 18 && board[x, y + 1] == EStoneType.None))
-        {
-            return true;
-        }
-
-        return HasLiberties(board, new(x - 1, y), stoneType, visited)
-               || HasLiberties(board, new(x + 1, y), stoneType, visited)
-               || HasLiberties(board, new(x, y - 1), stoneType, visited)
-               || HasLiberties(board, new(x, y + 1), stoneType, visited);
-    }
-
-    private static HashSet<BoardCoords> GetSurroundingStones(EStoneType[,] board, BoardCoords coords,
-        EStoneType stoneType, bool[,] visited)
-    {
-        // Check out of bounds
-        if (coords.X < 0 || coords.X >= board.GetLength(0) || coords.Y < 0 || coords.Y >= board.GetLength(1))
-        {
-            return [];
-        }
-
-        if (visited[coords.X, coords.Y])
-        {
-            return [];
-        }
-
-        visited[coords.X, coords.Y] = true;
-        if (board[coords.X, coords.Y] != stoneType)
-        {
-            return [];
-        }
-
-        var surroundingStones = new HashSet<BoardCoords> { coords };
-        var directions = new (int dx, int dy)[] { (-1, 0), (1, 0), (0, -1), (0, 1) };
-        foreach (var (dx, dy) in directions)
-        {
-            var newX = coords.X + dx;
-            var newY = coords.Y + dy;
-            if (newX < 0 || newX >= board.GetLength(0) || newY < 0 || newY >= board.GetLength(1))
-            {
-                continue;
-            }
-
-            var newCoords = new BoardCoords { X = newX, Y = newY };
-            var newSurroundingStones = GetSurroundingStones(board, newCoords, stoneType, visited);
-            surroundingStones.UnionWith(newSurroundingStones);
-        }
-
-        return surroundingStones;
     }
 
     private void AppendLog(string message)
