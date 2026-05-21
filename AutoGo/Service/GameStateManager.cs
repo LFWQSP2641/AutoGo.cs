@@ -8,7 +8,7 @@ namespace AutoGo.Service;
 
 public class GameStateManager(int boardSize = 19)
 {
-    private readonly Dictionary<Guid, GameStateNode> _gameStateNodes = new();
+    public Dictionary<Guid, GameStateNode> GameStateNodes { get; } = new();
 
     public GameStateNode CreateRootNode(IReadOnlyList<MoveRecord> initialMoveHistory)
     {
@@ -28,7 +28,7 @@ public class GameStateManager(int boardSize = 19)
             InitialMoveHistory = initialMoveHistory,
             BoardStateCache = board,
         };
-        _gameStateNodes[rootNode.Id] = rootNode;
+        GameStateNodes[rootNode.Id] = rootNode;
         return rootNode;
     }
 
@@ -56,30 +56,30 @@ public class GameStateManager(int boardSize = 19)
 
     public void Reset()
     {
-        _gameStateNodes.Clear();
+        GameStateNodes.Clear();
     }
 
     public List<GameStateNode> GetAllRootNodes()
     {
-        return _gameStateNodes.Values.Where(node => node.ParentId == null).ToList();
+        return GameStateNodes.Values.Where(node => node.ParentId == null).ToList();
     }
 
     public void RemoveNode(Guid nodeId)
     {
-        if (!_gameStateNodes.ContainsKey(nodeId))
+        if (!GameStateNodes.ContainsKey(nodeId))
         {
             throw new ArgumentException("Node not found", nameof(nodeId));
         }
-        var childNodes = _gameStateNodes.Values.Where(node => node.ParentId == nodeId).ToList();
+        var childNodes = GameStateNodes.Values.Where(node => node.ParentId == nodeId).ToList();
         foreach (var child in childNodes)
         {
             RemoveNode(child.Id);
         }
-        _gameStateNodes.Remove(nodeId);
-        var parentNode = _gameStateNodes.GetValueOrDefault(_gameStateNodes[nodeId].ParentId ?? Guid.Empty);
+        GameStateNodes.Remove(nodeId);
+        var parentNode = GameStateNodes.GetValueOrDefault(GameStateNodes[nodeId].ParentId ?? Guid.Empty);
         if (parentNode != null)
         {
-            _gameStateNodes[parentNode.Id] = parentNode with
+            GameStateNodes[parentNode.Id] = parentNode with
             {
                 ChildrenIds = parentNode.ChildrenIds.Where(id => id != nodeId).ToList(),
             };
@@ -88,7 +88,7 @@ public class GameStateManager(int boardSize = 19)
 
     public List<GameStateNode> GetPathToRoot(Guid nodeId)
     {
-        if (!_gameStateNodes.TryGetValue(nodeId, out var currentNode))
+        if (!GameStateNodes.TryGetValue(nodeId, out var currentNode))
         {
             throw new ArgumentException("Node not found", nameof(nodeId));
         }
@@ -99,7 +99,7 @@ public class GameStateManager(int boardSize = 19)
         {
             path.Add(currentNode);
             currentNode = currentNode.ParentId.HasValue &&
-                          _gameStateNodes.TryGetValue(currentNode.ParentId.Value, out var node)
+                          GameStateNodes.TryGetValue(currentNode.ParentId.Value, out var node)
                 ? node
                 : null;
         }
@@ -111,9 +111,18 @@ public class GameStateManager(int boardSize = 19)
     public bool TryPlay(Guid parentId, MoveRecord move, out GameStateNode? newNode)
     {
         newNode = null!;
-        if (!_gameStateNodes.TryGetValue(parentId, out var parentNode))
+        if (!GameStateNodes.TryGetValue(parentId, out var parentNode))
         {
             return false;
+        }
+        var existingChildren = parentNode.ChildrenIds
+            .Select(id => GameStateNodes[id])
+            .ToList();
+        var sameMoveChild = existingChildren.FirstOrDefault(node => node.Move == move);
+        if (sameMoveChild is not null)
+        {
+            newNode = sameMoveChild;
+            return true; // Move already exists
         }
         var newBoardState = CheckAndPlay(parentNode.BoardStateCache, move,
             parentNode.Move);
@@ -127,8 +136,8 @@ public class GameStateManager(int boardSize = 19)
             Move = move,
             BoardStateCache = newBoardState,
         };
-        _gameStateNodes[newNode.Id] = newNode;
-        _gameStateNodes[parentNode.Id] = parentNode with
+        GameStateNodes[newNode.Id] = newNode;
+        GameStateNodes[parentNode.Id] = parentNode with
         {
             ChildrenIds = parentNode.ChildrenIds.Append(newNode.Id).ToList(),
         };
@@ -137,12 +146,12 @@ public class GameStateManager(int boardSize = 19)
 
     public bool TryGetNode(Guid nodeId, out GameStateNode? node)
     {
-        return _gameStateNodes.TryGetValue(nodeId, out node);
+        return GameStateNodes.TryGetValue(nodeId, out node);
     }
 
     public GameStateNode? GetNodeOrDefault(Guid nodeId, GameStateNode? defaultNode = null)
     {
-        return _gameStateNodes!.GetValueOrDefault(nodeId, defaultNode);
+        return GameStateNodes!.GetValueOrDefault(nodeId, defaultNode);
     }
 
     private bool IsOutbounds(BoardCoords coords)
