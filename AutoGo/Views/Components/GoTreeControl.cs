@@ -10,6 +10,12 @@ namespace AutoGo.Views.Components;
 
 public class GoTreeControl : Control
 {
+    private const int XStep = 30;
+    private const int YStep = 30;
+    private const int Padding = 10;
+    private const int NodeRadius = 5;
+    private static readonly Pen EdgePen = new(Brushes.Black, 1);
+
     public static readonly StyledProperty<IReadOnlyDictionary<Guid, GameStateNode>> GameStateNodesProperty =
         AvaloniaProperty.Register<GoTreeControl, IReadOnlyDictionary<Guid, GameStateNode>>(nameof(GameStateNodes));
 
@@ -66,10 +72,6 @@ public class GoTreeControl : Control
         {
             selectedNode = longestPath.Last();
         }
-        // Set longest path as the main and vertical branch
-        const int xStep = 30;
-        const int yStep = 30;
-        const int padding = 10;
         // Define selected node position
         var targetX = bounds.Width / 2;
         var targetY = bounds.Height / 2;
@@ -82,13 +84,12 @@ public class GoTreeControl : Control
             nodePositions.AddRange(layoutResult.NodePositions);
             yPositionOffset = layoutResult.MaxY + 1;
         }
-        // TODO: Camera and culling
         var selectedNodePosition = nodePositions.FirstOrDefault(p => p.Node.Id == selectedNode.Id)?.Position ?? (0, 0);
-        var selectedWorldX = (double)selectedNodePosition.Item1 * xStep + padding;
-        var selectedWorldY = (double)selectedNodePosition.Item2 * yStep + padding;
+        var selectedWorldX = (double)selectedNodePosition.Item1 * XStep + Padding;
+        var selectedWorldY = (double)selectedNodePosition.Item2 * YStep + Padding;
         // clamp targetY
-        var minY = (double)padding;
-        var maxY = bounds.Height - padding;
+        var minY = (double)Padding;
+        var maxY = bounds.Height - Padding;
 
         if (minY >= maxY)
         {
@@ -102,45 +103,68 @@ public class GoTreeControl : Control
         var xPixelOffset = targetX - selectedWorldX;
         var yPixelOffset = targetY - selectedWorldY;
 
-        var nodePositionDict = nodePositions.ToDictionary(p => p.Node.Id, p => p);
-        foreach (var rootNode in allRootNodes)
-        {
-            DrawNode(context, rootNode, nodePositionDict, xStep, yStep, padding, xPixelOffset, yPixelOffset);
-        }
-    }
+        var nodePositionDict = nodePositions.ToDictionary(p => p.Node.Id, p => p.Position);
+        var cullingRect = new Rect(0, 0, bounds.Width, bounds.Height)
+            .Inflate(NodeRadius + 1);
 
-    private void DrawNode(DrawingContext context, GameStateNode node, Dictionary<Guid, NodePosition> nodePositionDict,
-        int xStep, int yStep, int padding, double xPixelOffset, double yPixelOffset)
-    {
-        if (!nodePositionDict.TryGetValue(node.Id, out var nodePosition))
+        foreach (var node in GameStateNodes.Values)
         {
-            return;
-        }
-        var worldX = (double)nodePosition.Position.Item1 * xStep + padding + xPixelOffset;
-        var worldY = (double)nodePosition.Position.Item2 * yStep + padding + yPixelOffset;
-        // Draw node
-        const int radius = 5;
-        var brush = Brushes.Black;
-        if (node.Id == SelectedNode.Id)
-        {
-            brush = Brushes.Red;
-        }
-        context.DrawEllipse(brush, null, new Rect(worldX - radius, worldY - radius, radius * 2, radius * 2));
-        // Draw edges to children
-        foreach (var childId in node.ChildrenIds)
-        {
-            if (!nodePositionDict.TryGetValue(childId, out var childPosition))
+            if (!nodePositionDict.TryGetValue(node.Id, out var nodePosition))
             {
                 continue;
             }
-            var childWorldX = (double)childPosition.Position.Item1 * xStep + padding + xPixelOffset;
-            var childWorldY = (double)childPosition.Position.Item2 * yStep + padding + yPixelOffset;
-            context.DrawLine(new Pen(Brushes.Black, 1), new Point(worldX, worldY), new Point(childWorldX, childWorldY));
-            if (GameStateNodes.TryGetValue(childId, out var childNode))
+
+            var nodePoint = ToScreenPoint(nodePosition, xPixelOffset, yPixelOffset);
+
+            foreach (var childId in node.ChildrenIds)
             {
-                DrawNode(context, childNode, nodePositionDict, xStep, yStep, padding, xPixelOffset, yPixelOffset);
+                if (!nodePositionDict.TryGetValue(childId, out var childPosition))
+                {
+                    continue;
+                }
+
+                var childPoint = ToScreenPoint(childPosition, xPixelOffset, yPixelOffset);
+                var edgeRect = new Rect(
+                    Math.Min(nodePoint.X, childPoint.X),
+                    Math.Min(nodePoint.Y, childPoint.Y),
+                    Math.Abs(nodePoint.X - childPoint.X),
+                    Math.Abs(nodePoint.Y - childPoint.Y));
+                if (!cullingRect.Contains(nodePoint)
+                    && !cullingRect.Contains(childPoint)
+                    && !edgeRect.Intersects(cullingRect))
+                {
+                    continue;
+                }
+
+                context.DrawLine(EdgePen, nodePoint, childPoint);
             }
         }
+
+        foreach (var node in GameStateNodes.Values)
+        {
+            if (!nodePositionDict.TryGetValue(node.Id, out var nodePosition))
+            {
+                continue;
+            }
+
+            var nodePoint = ToScreenPoint(nodePosition, xPixelOffset, yPixelOffset);
+            var nodeRect = new Rect(
+                nodePoint.X - NodeRadius,
+                nodePoint.Y - NodeRadius,
+                NodeRadius * 2,
+                NodeRadius * 2);
+            if (!nodeRect.Intersects(cullingRect))
+            {
+                continue;
+            }
+
+            context.DrawEllipse(node.Id == SelectedNode.Id ? Brushes.Red : Brushes.Black, null, nodeRect);
+        }
+    }
+
+    private static Point ToScreenPoint((int X, int Y) position, double xPixelOffset, double yPixelOffset)
+    {
+        return new Point(position.X * XStep + Padding + xPixelOffset, position.Y * YStep + Padding + yPixelOffset);
     }
 
     private LayoutResult CalculateNodePositions(GameStateNode rootNode, int xOffset, int yOffset,
