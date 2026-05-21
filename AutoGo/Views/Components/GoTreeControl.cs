@@ -31,8 +31,8 @@ public class GoTreeControl : Control
         AvaloniaProperty.Register<GoTreeControl, IReadOnlyDictionary<Guid, GameStateNode>>(
             nameof(GameStateNodes), new Dictionary<Guid, GameStateNode>());
 
-    public static readonly StyledProperty<GameStateNode> SelectedNodeProperty =
-        AvaloniaProperty.Register<GoTreeControl, GameStateNode>(nameof(SelectedNode), new GameStateNode());
+    public static readonly StyledProperty<GameStateNode?> SelectedNodeProperty =
+        AvaloniaProperty.Register<GoTreeControl, GameStateNode?>(nameof(SelectedNode));
 
     public static readonly StyledProperty<ICommand?> NodeClickedCommandProperty =
         AvaloniaProperty.Register<GoTreeControl, ICommand?>(nameof(NodeClickedCommand));
@@ -58,7 +58,7 @@ public class GoTreeControl : Control
         set => SetValue(GameStateNodesProperty, value);
     }
 
-    public GameStateNode SelectedNode
+    public GameStateNode? SelectedNode
     {
         get => GetValue(SelectedNodeProperty);
         set => SetValue(SelectedNodeProperty, value);
@@ -102,7 +102,7 @@ public class GoTreeControl : Control
             return;
         }
         longestPath = longestPath.AsEnumerable().Reverse().ToList();
-        if (!GameStateNodes.ContainsKey(selectedNode.Id))
+        if (selectedNode is null || !GameStateNodes.ContainsKey(selectedNode.Id))
         {
             selectedNode = longestPath.Last();
         }
@@ -195,7 +195,7 @@ public class GoTreeControl : Control
                 continue;
             }
 
-            context.DrawEllipse(node.Id == SelectedNode.Id ? Brushes.Red : Brushes.Black, null, nodeRect);
+            context.DrawEllipse(node.Id == selectedNode.Id ? Brushes.Red : Brushes.Black, null, nodeRect);
         }
 
         if (_hoveredNodeId is { } hoveredNodeId
@@ -268,12 +268,6 @@ public class GoTreeControl : Control
     protected override void OnPointerExited(PointerEventArgs e)
     {
         base.OnPointerExited(e);
-        if (_hoveredNodeId is null)
-        {
-            Cursor = ArrowCursor;
-            return;
-        }
-
         _hoveredNodeId = null;
         Cursor = ArrowCursor;
         InvalidateVisual();
@@ -283,7 +277,7 @@ public class GoTreeControl : Control
     {
         base.OnPointerWheelChanged(e);
         var deltaY = e.Delta.Y;
-        if (Math.Abs(deltaY) < double.Epsilon)
+        if (deltaY == 0)
         {
             return;
         }
