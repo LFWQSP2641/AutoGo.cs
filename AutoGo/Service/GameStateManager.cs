@@ -145,7 +145,7 @@ public class GameStateManager(int boardSize = 19)
         return _gameStateNodes!.GetValueOrDefault(nodeId, defaultNode);
     }
 
-    private bool CheckOutbounds(BoardCoords coords)
+    private bool IsOutbounds(BoardCoords coords)
     {
         var (x, y) = coords;
         return x < 0 || x >= boardSize || y < 0 || y >= boardSize;
@@ -154,7 +154,7 @@ public class GameStateManager(int boardSize = 19)
     private bool HasLiberties(EStoneType[,] board, BoardCoords coords, EStoneType stoneType, bool[,] visited)
     {
         var (x, y) = coords;
-        if (CheckOutbounds(coords) || visited[x, y] || board[x, y] != stoneType)
+        if (IsOutbounds(coords) || visited[x, y] || board[x, y] != stoneType)
         {
             return false;
         }
@@ -178,7 +178,7 @@ public class GameStateManager(int boardSize = 19)
         EStoneType stoneType, bool[,] visited)
     {
         // Check out of bounds
-        if (CheckOutbounds(coords))
+        if (IsOutbounds(coords))
         {
             return [];
         }
@@ -201,7 +201,7 @@ public class GameStateManager(int boardSize = 19)
             var newX = coords.X + dx;
             var newY = coords.Y + dy;
             var newCoords = new BoardCoords { X = newX, Y = newY };
-            if (CheckOutbounds(newCoords))
+            if (IsOutbounds(newCoords))
             {
                 continue;
             }
@@ -248,7 +248,7 @@ public class GameStateManager(int boardSize = 19)
         }
 
         var coords = nextMove.Coords!.Value;
-        if (CheckOutbounds(coords))
+        if (IsOutbounds(coords))
         {
             return null;
         }
@@ -268,7 +268,7 @@ public class GameStateManager(int boardSize = 19)
         };
         // Remove the points that are out of bounds
         aroundPointList = aroundPointList
-            .Where(CheckOutbounds).ToList();
+            .Where(p => !IsOutbounds(p)).ToList();
         // 1. Check the enemy stones around the current move.
         // 2. If they have no liberties, check whether they can be captured.
         // 3. If the situation is a ko, return null.
