@@ -119,7 +119,11 @@ public class GoTreeControl : Control
         var yPixelOffset = targetY - selectedWorldY;
 
         var nodePositionsById = nodePositions.ToDictionary(p => p.Node.Id, p => p.Position);
-        _lastNodePositionsById = nodePositionsById;
+        _lastNodePositionsById.Clear();
+        foreach (var (nodeId, position) in nodePositionsById)
+        {
+            _lastNodePositionsById[nodeId] = position;
+        }
         _lastXPixelOffset = xPixelOffset;
         _lastYPixelOffset = yPixelOffset;
         var cullingRect = new Rect(0, 0, bounds.Width, bounds.Height)
