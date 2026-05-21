@@ -103,13 +103,13 @@ public class GoTreeControl : Control
         var xPixelOffset = targetX - selectedWorldX;
         var yPixelOffset = targetY - selectedWorldY;
 
-        var nodePositionDict = nodePositions.ToDictionary(p => p.Node.Id, p => p.Position);
+        var nodePositionsById = nodePositions.ToDictionary(p => p.Node.Id, p => p.Position);
         var cullingRect = new Rect(0, 0, bounds.Width, bounds.Height)
             .Inflate(NodeRadius + 1);
 
         foreach (var node in GameStateNodes.Values)
         {
-            if (!nodePositionDict.TryGetValue(node.Id, out var nodePosition))
+            if (!nodePositionsById.TryGetValue(node.Id, out var nodePosition))
             {
                 continue;
             }
@@ -118,20 +118,13 @@ public class GoTreeControl : Control
 
             foreach (var childId in node.ChildrenIds)
             {
-                if (!nodePositionDict.TryGetValue(childId, out var childPosition))
+                if (!nodePositionsById.TryGetValue(childId, out var childPosition))
                 {
                     continue;
                 }
 
                 var childPoint = ToScreenPoint(childPosition, xPixelOffset, yPixelOffset);
-                var edgeRect = new Rect(
-                    Math.Min(nodePoint.X, childPoint.X),
-                    Math.Min(nodePoint.Y, childPoint.Y),
-                    Math.Abs(nodePoint.X - childPoint.X),
-                    Math.Abs(nodePoint.Y - childPoint.Y));
-                if (!cullingRect.Contains(nodePoint)
-                    && !cullingRect.Contains(childPoint)
-                    && !edgeRect.Intersects(cullingRect))
+                if (!IsEdgeVisible(cullingRect, nodePoint, childPoint))
                 {
                     continue;
                 }
@@ -142,7 +135,7 @@ public class GoTreeControl : Control
 
         foreach (var node in GameStateNodes.Values)
         {
-            if (!nodePositionDict.TryGetValue(node.Id, out var nodePosition))
+            if (!nodePositionsById.TryGetValue(node.Id, out var nodePosition))
             {
                 continue;
             }
@@ -165,6 +158,21 @@ public class GoTreeControl : Control
     private static Point ToScreenPoint((int X, int Y) position, double xPixelOffset, double yPixelOffset)
     {
         return new Point(position.X * XStep + Padding + xPixelOffset, position.Y * YStep + Padding + yPixelOffset);
+    }
+
+    private static bool IsEdgeVisible(Rect cullingRect, Point start, Point end)
+    {
+        if (cullingRect.Contains(start) || cullingRect.Contains(end))
+        {
+            return true;
+        }
+
+        var edgeRect = new Rect(
+            Math.Min(start.X, end.X),
+            Math.Min(start.Y, end.Y),
+            Math.Abs(start.X - end.X),
+            Math.Abs(start.Y - end.Y)).Inflate(1);
+        return edgeRect.Intersects(cullingRect);
     }
 
     private LayoutResult CalculateNodePositions(GameStateNode rootNode, int xOffset, int yOffset,
