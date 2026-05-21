@@ -20,6 +20,13 @@ public class GoTreeControl : Control
     private const double MinZoom = 0.4;
     private const double MaxZoom = 3.5;
     private const double ZoomFactor = 1.1;
+    private const double ZoomEpsilon = 0.0001;
+    private const double PreviewSize = 120;
+    private const double PreviewPadding = 10;
+    private const double PreviewOffset = 14;
+    private const double PreviewBoundaryMargin = 4;
+    private const double BoardGridIntervals = 18.0;
+    private const double StoneRadiusFactor = 0.4;
     private static readonly Cursor ArrowCursor = new(StandardCursorType.Arrow);
     private static readonly Cursor HandCursor = new(StandardCursorType.Hand);
     private static readonly Pen EdgePen = new(Brushes.Black, 1);
@@ -284,7 +291,7 @@ public class GoTreeControl : Control
 
         var nextZoom = deltaY > 0 ? _zoom * ZoomFactor : _zoom / ZoomFactor;
         var clampedZoom = Math.Clamp(nextZoom, MinZoom, MaxZoom);
-        if (Math.Abs(clampedZoom - _zoom) < 0.0001)
+        if (Math.Abs(clampedZoom - _zoom) < ZoomEpsilon)
         {
             return;
         }
@@ -350,31 +357,29 @@ public class GoTreeControl : Control
 
     private void DrawMiniBoardPreview(DrawingContext context, EStoneType[,] boardState, Rect bounds)
     {
-        const double previewSize = 120;
-        const double boardPadding = 10;
-        var anchor = new Point(_lastPointerPosition.X + 14, _lastPointerPosition.Y + 14);
+        var anchor = new Point(_lastPointerPosition.X + PreviewOffset, _lastPointerPosition.Y + PreviewOffset);
         var x = anchor.X;
         var y = anchor.Y;
-        if (x + previewSize > bounds.Width - 4)
+        if (x + PreviewSize > bounds.Width - PreviewBoundaryMargin)
         {
-            x = Math.Max(4, _lastPointerPosition.X - previewSize - 14);
+            x = Math.Max(PreviewBoundaryMargin, _lastPointerPosition.X - PreviewSize - PreviewOffset);
         }
-        if (y + previewSize > bounds.Height - 4)
+        if (y + PreviewSize > bounds.Height - PreviewBoundaryMargin)
         {
-            y = Math.Max(4, _lastPointerPosition.Y - previewSize - 14);
+            y = Math.Max(PreviewBoundaryMargin, _lastPointerPosition.Y - PreviewSize - PreviewOffset);
         }
 
-        var previewRect = new Rect(x, y, previewSize, previewSize);
+        var previewRect = new Rect(x, y, PreviewSize, PreviewSize);
         context.DrawRectangle(Brushes.White, MiniBoardPen, previewRect);
 
         var boardRect = new Rect(
-            previewRect.X + boardPadding,
-            previewRect.Y + boardPadding,
-            previewRect.Width - boardPadding * 2,
-            previewRect.Height - boardPadding * 2);
+            previewRect.X + PreviewPadding,
+            previewRect.Y + PreviewPadding,
+            previewRect.Width - PreviewPadding * 2,
+            previewRect.Height - PreviewPadding * 2);
         context.DrawRectangle(MiniBoardBackground, MiniBoardPen, boardRect);
 
-        var gridStep = boardRect.Width / 18.0;
+        var gridStep = boardRect.Width / BoardGridIntervals;
         for (var i = 0; i < 19; i++)
         {
             var xLine = boardRect.X + i * gridStep;
@@ -383,7 +388,7 @@ public class GoTreeControl : Control
             context.DrawLine(MiniBoardPen, new Point(boardRect.X, yLine), new Point(boardRect.Right, yLine));
         }
 
-        var stoneRadius = gridStep * 0.4;
+        var stoneRadius = gridStep * StoneRadiusFactor;
         for (var boardX = 0; boardX < 19; boardX++)
         {
             for (var boardY = 0; boardY < 19; boardY++)
