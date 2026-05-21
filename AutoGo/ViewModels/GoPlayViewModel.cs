@@ -23,11 +23,11 @@ public partial class GoPlayViewModel : ViewModelBase
     private readonly StringBuilder _logBuilder = new();
     private CancellationTokenSource? _kataGoCts;
     private KataGoService? _kataGoService;
-    private GameStateNode _lastGameStateNode;
 
     public GoPlayViewModel()
     {
-        _lastGameStateNode = _gameStateManager.CreateRootNode();
+        LastGameStateNode = _gameStateManager.CreateRootNode();
+        GameStateNodes = _gameStateManager.GameStateNodes;
     }
 
     [ObservableProperty] public partial EStoneType[,] BoardData { get; set; } = new EStoneType[19, 19];
@@ -39,6 +39,10 @@ public partial class GoPlayViewModel : ViewModelBase
     [ObservableProperty] public partial string LogText { get; set; } = string.Empty;
 
     [ObservableProperty] public partial IEnumerable<AnalysisPoint> AnalysisPoints { get; set; } = [];
+
+    [ObservableProperty] public partial GameStateNode LastGameStateNode { get; set; }
+
+    [ObservableProperty] public partial Dictionary<Guid, GameStateNode> GameStateNodes { get; set; }
 
     [ObservableProperty] public partial bool IsAnalyzing { get; set; } = false;
 
@@ -75,22 +79,40 @@ public partial class GoPlayViewModel : ViewModelBase
         LastMoveCoords = null;
         AnalysisPoints = [];
         _gameStateManager.Reset();
-        _lastGameStateNode = _gameStateManager.CreateRootNode();
+        LastGameStateNode = _gameStateManager.CreateRootNode();
+        GameStateNodes = _gameStateManager.GameStateNodes;
     }
 
     [RelayCommand]
     private void UndoMove()
     {
-        var parentNode = _gameStateManager.GetNodeOrDefault(_lastGameStateNode.ParentId ?? Guid.Empty);
+        var parentNode = _gameStateManager.GetNodeOrDefault(LastGameStateNode.ParentId ?? Guid.Empty);
         if (parentNode is null)
         {
             return;
         }
-        _lastGameStateNode = parentNode;
+        LastGameStateNode = parentNode;
         // _gameStateManager.RemoveNode(_lastGameStateNode.Id);
-        BoardData = _lastGameStateNode.BoardStateCache;
-        CurrentPlayer = _lastGameStateNode.Move?.StoneType == EStoneType.Black ? EStoneType.White : EStoneType.Black;
-        LastMoveCoords = _lastGameStateNode.Move?.Coords;
+        BoardData = LastGameStateNode.BoardStateCache;
+        CurrentPlayer = LastGameStateNode.Move?.StoneType == EStoneType.Black ? EStoneType.White : EStoneType.Black;
+        LastMoveCoords = LastGameStateNode.Move?.Coords;
+        AnalysisPoints = [];
+        GameStateNodes = _gameStateManager.GameStateNodes;
+    }
+
+    [RelayCommand]
+    private void HandleTreeNodeClicked(GameStateNode node)
+    {
+        if (!_gameStateManager.TryGetNode(node.Id, out var selectedNode)
+            || selectedNode is null)
+        {
+            return;
+        }
+
+        LastGameStateNode = selectedNode;
+        BoardData = selectedNode.BoardStateCache;
+        CurrentPlayer = selectedNode.Move?.StoneType == EStoneType.Black ? EStoneType.White : EStoneType.Black;
+        LastMoveCoords = selectedNode.Move?.Coords;
         AnalysisPoints = [];
     }
 
@@ -102,7 +124,7 @@ public partial class GoPlayViewModel : ViewModelBase
             return;
         }
         // await _kataGoService!.SendAnalysis(_moveHistory);
-        var nodePath = _gameStateManager.GetPathToRoot(_lastGameStateNode.Id);
+        var nodePath = _gameStateManager.GetPathToRoot(LastGameStateNode.Id);
         var moveHistory = nodePath.Select(node => node.Move).Where(move => move is not null).Select(move => move!)
             .ToList();
         //if (moveHistory.Count == 0)
@@ -196,18 +218,19 @@ public partial class GoPlayViewModel : ViewModelBase
 
     private void TryPlay(MoveRecord move)
     {
-        var success = _gameStateManager.TryPlay(_lastGameStateNode.Id, move, out var newGameStateNode);
+        var success = _gameStateManager.TryPlay(LastGameStateNode.Id, move, out var newGameStateNode);
         if (!success
             || newGameStateNode is null)
         {
             AppendLog($"Failed to play move at {move.Coords} for player {move.StoneType}.");
             return;
         }
-        _lastGameStateNode = newGameStateNode;
+        LastGameStateNode = newGameStateNode;
         BoardData = newGameStateNode.BoardStateCache;
         CurrentPlayer = CurrentPlayer == EStoneType.Black ? EStoneType.White : EStoneType.Black;
         LastMoveCoords = move.Coords;
         AnalysisPoints = [];
+        GameStateNodes = _gameStateManager.GameStateNodes;
     }
 
     private void AppendLog(string message)

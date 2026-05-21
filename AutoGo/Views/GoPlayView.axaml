@@ -59,14 +59,30 @@
         <Grid
             Grid.Row="0"
             Grid.Column="2"
-            Margin="10">
-            <ScrollViewer x:Name="LogScrollViewer" VerticalScrollBarVisibility="Auto">
+            Margin="10"
+            RowDefinitions="4*,*">
+            <ScrollViewer
+                x:Name="LogScrollViewer"
+                Grid.Row="0"
+                Grid.Column="0"
+                VerticalScrollBarVisibility="Auto">
                 <SelectableTextBlock
                     Margin="4"
                     FontSize="14"
                     Text="{Binding LogText}"
                     TextWrapping="Wrap" />
             </ScrollViewer>
+
+            <components:GoTreeControl
+                Grid.Row="1"
+                Grid.Column="0"
+                Margin="10"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                GameStateNodes="{Binding GameStateNodes}"
+                NodeClickedCommand="{Binding HandleTreeNodeClickedCommand}"
+                SelectedNode="{Binding LastGameStateNode}" />
+
         </Grid>
 
         <WrapPanel
