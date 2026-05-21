@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Input;
+using AutoGo.Enums;
 using AutoGo.Models;
 using Avalonia;
 using Avalonia.Controls;
@@ -12,17 +13,26 @@ namespace AutoGo.Views.Components;
 
 public class GoTreeControl : Control
 {
-    private const int XStep = 30;
-    private const int YStep = 30;
+    private const int BaseXStep = 30;
+    private const int BaseYStep = 30;
     private const int Padding = 10;
-    private const int NodeRadius = 5;
+    private const int BaseNodeRadius = 5;
+    private const double MinZoom = 0.4;
+    private const double MaxZoom = 3.5;
+    private const double ZoomFactor = 1.1;
+    private static readonly Cursor ArrowCursor = new(StandardCursorType.Arrow);
+    private static readonly Cursor HandCursor = new(StandardCursorType.Hand);
     private static readonly Pen EdgePen = new(Brushes.Black, 1);
+    private static readonly Pen MiniBoardPen = new(Brushes.Black, 1);
+    private static readonly Pen MiniStonePen = new(Brushes.Black, 1);
+    private static readonly IBrush MiniBoardBackground = new SolidColorBrush(Color.Parse("#F2D39B"));
 
     public static readonly StyledProperty<IReadOnlyDictionary<Guid, GameStateNode>> GameStateNodesProperty =
-        AvaloniaProperty.Register<GoTreeControl, IReadOnlyDictionary<Guid, GameStateNode>>(nameof(GameStateNodes));
+        AvaloniaProperty.Register<GoTreeControl, IReadOnlyDictionary<Guid, GameStateNode>>(
+            nameof(GameStateNodes), new Dictionary<Guid, GameStateNode>());
 
     public static readonly StyledProperty<GameStateNode> SelectedNodeProperty =
-        AvaloniaProperty.Register<GoTreeControl, GameStateNode>(nameof(SelectedNode));
+        AvaloniaProperty.Register<GoTreeControl, GameStateNode>(nameof(SelectedNode), new GameStateNode());
 
     public static readonly StyledProperty<ICommand?> NodeClickedCommandProperty =
         AvaloniaProperty.Register<GoTreeControl, ICommand?>(nameof(NodeClickedCommand));
@@ -30,6 +40,12 @@ public class GoTreeControl : Control
     private Dictionary<Guid, (int X, int Y)> _lastNodePositionsById = new();
     private double _lastXPixelOffset;
     private double _lastYPixelOffset;
+    private double _lastXStep = BaseXStep;
+    private double _lastYStep = BaseYStep;
+    private double _lastNodeRadius = BaseNodeRadius;
+    private double _zoom = 1.0;
+    private Guid? _hoveredNodeId;
+    private Point _lastPointerPosition;
 
     static GoTreeControl()
     {
@@ -59,6 +75,9 @@ public class GoTreeControl : Control
         var bounds = Bounds;
         context.FillRectangle(Brushes.White, new Rect(bounds.Size));
         var selectedNode = SelectedNode;
+        var xStep = BaseXStep * _zoom;
+        var yStep = BaseYStep * _zoom;
+        var nodeRadius = Math.Max(3, BaseNodeRadius * _zoom);
         var longestPath = new List<GameStateNode>();
         foreach (var node in GameStateNodes.Where(n => n.Value.ChildrenIds.Count == 0))
         {
@@ -100,8 +119,8 @@ public class GoTreeControl : Control
             yPositionOffset = layoutResult.MaxY + 1;
         }
         var selectedNodePosition = nodePositions.FirstOrDefault(p => p.Node.Id == selectedNode.Id)?.Position ?? (0, 0);
-        var selectedWorldX = (double)selectedNodePosition.Item1 * XStep + Padding;
-        var selectedWorldY = (double)selectedNodePosition.Item2 * YStep + Padding;
+        var selectedWorldX = selectedNodePosition.Item1 * xStep + Padding;
+        var selectedWorldY = selectedNodePosition.Item2 * yStep + Padding;
         // clamp targetY
         var minY = (double)Padding;
         var maxY = bounds.Height - Padding;
@@ -126,8 +145,11 @@ public class GoTreeControl : Control
         }
         _lastXPixelOffset = xPixelOffset;
         _lastYPixelOffset = yPixelOffset;
+        _lastXStep = xStep;
+        _lastYStep = yStep;
+        _lastNodeRadius = nodeRadius;
         var cullingRect = new Rect(0, 0, bounds.Width, bounds.Height)
-            .Inflate(NodeRadius + 1);
+            .Inflate(nodeRadius + 1);
 
         foreach (var node in GameStateNodes.Values)
         {
@@ -136,7 +158,7 @@ public class GoTreeControl : Control
                 continue;
             }
 
-            var nodePoint = ToScreenPoint(nodePosition, xPixelOffset, yPixelOffset);
+            var nodePoint = ToScreenPoint(nodePosition, xPixelOffset, yPixelOffset, xStep, yStep);
 
             foreach (var childId in node.ChildrenIds)
             {
@@ -145,7 +167,7 @@ public class GoTreeControl : Control
                     continue;
                 }
 
-                var childPoint = ToScreenPoint(childPosition, xPixelOffset, yPixelOffset);
+                var childPoint = ToScreenPoint(childPosition, xPixelOffset, yPixelOffset, xStep, yStep);
                 if (!IsEdgeVisible(cullingRect, nodePoint, childPoint))
                 {
                     continue;
@@ -162,18 +184,24 @@ public class GoTreeControl : Control
                 continue;
             }
 
-            var nodePoint = ToScreenPoint(nodePosition, xPixelOffset, yPixelOffset);
+            var nodePoint = ToScreenPoint(nodePosition, xPixelOffset, yPixelOffset, xStep, yStep);
             var nodeRect = new Rect(
-                nodePoint.X - NodeRadius,
-                nodePoint.Y - NodeRadius,
-                NodeRadius * 2,
-                NodeRadius * 2);
+                nodePoint.X - nodeRadius,
+                nodePoint.Y - nodeRadius,
+                nodeRadius * 2,
+                nodeRadius * 2);
             if (!nodeRect.Intersects(cullingRect))
             {
                 continue;
             }
 
             context.DrawEllipse(node.Id == SelectedNode.Id ? Brushes.Red : Brushes.Black, null, nodeRect);
+        }
+
+        if (_hoveredNodeId is { } hoveredNodeId
+            && GameStateNodes.TryGetValue(hoveredNodeId, out var hoveredNode))
+        {
+            DrawMiniBoardPreview(context, hoveredNode.BoardStateCache, bounds);
         }
     }
 
@@ -187,7 +215,7 @@ public class GoTreeControl : Control
         var clickPoint = e.GetCurrentPoint(this).Position;
         GameStateNode? clickedNode = null;
         var minDistanceSquared = double.MaxValue;
-        var hitRadiusSquared = NodeRadius * NodeRadius;
+        var hitRadiusSquared = _lastNodeRadius * _lastNodeRadius;
 
         foreach (var (nodeId, position) in _lastNodePositionsById)
         {
@@ -196,7 +224,7 @@ public class GoTreeControl : Control
                 continue;
             }
 
-            var nodePoint = ToScreenPoint(position, _lastXPixelOffset, _lastYPixelOffset);
+            var nodePoint = ToScreenPoint(position, _lastXPixelOffset, _lastYPixelOffset, _lastXStep, _lastYStep);
             var dx = nodePoint.X - clickPoint.X;
             var dy = nodePoint.Y - clickPoint.Y;
             var distanceSquared = dx * dx + dy * dy;
@@ -218,9 +246,97 @@ public class GoTreeControl : Control
         e.Handled = true;
     }
 
-    private static Point ToScreenPoint((int X, int Y) position, double xPixelOffset, double yPixelOffset)
+    protected override void OnPointerMoved(PointerEventArgs e)
     {
-        return new Point(position.X * XStep + Padding + xPixelOffset, position.Y * YStep + Padding + yPixelOffset);
+        base.OnPointerMoved(e);
+        _lastPointerPosition = e.GetCurrentPoint(this).Position;
+
+        var previousHovered = _hoveredNodeId;
+        var hoveredNode = FindNodeAtPoint(_lastPointerPosition);
+        _hoveredNodeId = hoveredNode?.Id;
+
+        Cursor = hoveredNode is not null && (NodeClickedCommand?.CanExecute(hoveredNode) ?? false)
+            ? HandCursor
+            : ArrowCursor;
+
+        if (previousHovered != _hoveredNodeId)
+        {
+            InvalidateVisual();
+        }
+    }
+
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+        if (_hoveredNodeId is null)
+        {
+            Cursor = ArrowCursor;
+            return;
+        }
+
+        _hoveredNodeId = null;
+        Cursor = ArrowCursor;
+        InvalidateVisual();
+    }
+
+    protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
+    {
+        base.OnPointerWheelChanged(e);
+        var deltaY = e.Delta.Y;
+        if (Math.Abs(deltaY) < double.Epsilon)
+        {
+            return;
+        }
+
+        var nextZoom = deltaY > 0 ? _zoom * ZoomFactor : _zoom / ZoomFactor;
+        var clampedZoom = Math.Clamp(nextZoom, MinZoom, MaxZoom);
+        if (Math.Abs(clampedZoom - _zoom) < 0.0001)
+        {
+            return;
+        }
+
+        _zoom = clampedZoom;
+        InvalidateVisual();
+        e.Handled = true;
+    }
+
+    private GameStateNode? FindNodeAtPoint(Point point)
+    {
+        if (_lastNodePositionsById.Count == 0)
+        {
+            return null;
+        }
+
+        GameStateNode? closestNode = null;
+        var minDistanceSquared = double.MaxValue;
+        var hitRadiusSquared = _lastNodeRadius * _lastNodeRadius;
+        foreach (var (nodeId, position) in _lastNodePositionsById)
+        {
+            if (!GameStateNodes.TryGetValue(nodeId, out var node))
+            {
+                continue;
+            }
+
+            var nodePoint = ToScreenPoint(position, _lastXPixelOffset, _lastYPixelOffset, _lastXStep, _lastYStep);
+            var dx = nodePoint.X - point.X;
+            var dy = nodePoint.Y - point.Y;
+            var distanceSquared = dx * dx + dy * dy;
+            if (distanceSquared > hitRadiusSquared || distanceSquared >= minDistanceSquared)
+            {
+                continue;
+            }
+
+            minDistanceSquared = distanceSquared;
+            closestNode = node;
+        }
+
+        return closestNode;
+    }
+
+    private static Point ToScreenPoint((int X, int Y) position, double xPixelOffset, double yPixelOffset, double xStep,
+        double yStep)
+    {
+        return new Point(position.X * xStep + Padding + xPixelOffset, position.Y * yStep + Padding + yPixelOffset);
     }
 
     private static bool IsEdgeVisible(Rect cullingRect, Point start, Point end)
@@ -236,6 +352,59 @@ public class GoTreeControl : Control
             Math.Abs(start.X - end.X),
             Math.Abs(start.Y - end.Y)).Inflate(1);
         return edgeRect.Intersects(cullingRect);
+    }
+
+    private void DrawMiniBoardPreview(DrawingContext context, EStoneType[,] boardState, Rect bounds)
+    {
+        const double previewSize = 120;
+        const double boardPadding = 10;
+        var anchor = new Point(_lastPointerPosition.X + 14, _lastPointerPosition.Y + 14);
+        var x = anchor.X;
+        var y = anchor.Y;
+        if (x + previewSize > bounds.Width - 4)
+        {
+            x = Math.Max(4, _lastPointerPosition.X - previewSize - 14);
+        }
+        if (y + previewSize > bounds.Height - 4)
+        {
+            y = Math.Max(4, _lastPointerPosition.Y - previewSize - 14);
+        }
+
+        var previewRect = new Rect(x, y, previewSize, previewSize);
+        context.DrawRectangle(Brushes.White, MiniBoardPen, previewRect);
+
+        var boardRect = new Rect(
+            previewRect.X + boardPadding,
+            previewRect.Y + boardPadding,
+            previewRect.Width - boardPadding * 2,
+            previewRect.Height - boardPadding * 2);
+        context.DrawRectangle(MiniBoardBackground, MiniBoardPen, boardRect);
+
+        var gridStep = boardRect.Width / 18.0;
+        for (var i = 0; i < 19; i++)
+        {
+            var xLine = boardRect.X + i * gridStep;
+            var yLine = boardRect.Y + i * gridStep;
+            context.DrawLine(MiniBoardPen, new Point(xLine, boardRect.Y), new Point(xLine, boardRect.Bottom));
+            context.DrawLine(MiniBoardPen, new Point(boardRect.X, yLine), new Point(boardRect.Right, yLine));
+        }
+
+        var stoneRadius = gridStep * 0.4;
+        for (var boardX = 0; boardX < 19; boardX++)
+        {
+            for (var boardY = 0; boardY < 19; boardY++)
+            {
+                var stone = boardState[boardX, boardY];
+                if (stone == EStoneType.None)
+                {
+                    continue;
+                }
+
+                var center = new Point(boardRect.X + boardX * gridStep, boardRect.Y + boardY * gridStep);
+                var brush = stone == EStoneType.Black ? Brushes.Black : Brushes.White;
+                context.DrawEllipse(brush, MiniStonePen, center, stoneRadius, stoneRadius);
+            }
+        }
     }
 
     private LayoutResult CalculateNodePositions(GameStateNode rootNode, int xOffset, int yOffset,
