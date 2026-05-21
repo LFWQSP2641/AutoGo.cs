@@ -101,6 +101,22 @@ public partial class GoPlayViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private void HandleTreeNodeClicked(GameStateNode node)
+    {
+        if (!_gameStateManager.TryGetNode(node.Id, out var selectedNode)
+            || selectedNode is null)
+        {
+            return;
+        }
+
+        LastGameStateNode = selectedNode;
+        BoardData = selectedNode.BoardStateCache;
+        CurrentPlayer = selectedNode.Move?.StoneType == EStoneType.Black ? EStoneType.White : EStoneType.Black;
+        LastMoveCoords = selectedNode.Move?.Coords;
+        AnalysisPoints = [];
+    }
+
+    [RelayCommand]
     private async Task KataGoAnalyzeAsync()
     {
         if (!await InitKataGo())

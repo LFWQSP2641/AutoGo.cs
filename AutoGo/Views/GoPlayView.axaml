@@ -80,6 +80,7 @@
                 HorizontalAlignment="Stretch"
                 VerticalAlignment="Stretch"
                 GameStateNodes="{Binding GameStateNodes}"
+                NodeClickedCommand="{Binding HandleTreeNodeClickedCommand}"
                 SelectedNode="{Binding LastGameStateNode}" />
 
         </Grid>

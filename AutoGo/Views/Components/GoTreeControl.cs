@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Windows.Input;
 using AutoGo.Models;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Media;
 
 namespace AutoGo.Views.Components;
@@ -22,6 +24,13 @@ public class GoTreeControl : Control
     public static readonly StyledProperty<GameStateNode> SelectedNodeProperty =
         AvaloniaProperty.Register<GoTreeControl, GameStateNode>(nameof(SelectedNode));
 
+    public static readonly StyledProperty<ICommand?> NodeClickedCommandProperty =
+        AvaloniaProperty.Register<GoTreeControl, ICommand?>(nameof(NodeClickedCommand));
+
+    private Dictionary<Guid, (int X, int Y)> _lastNodePositionsById = new();
+    private double _lastXPixelOffset;
+    private double _lastYPixelOffset;
+
     static GoTreeControl()
     {
         AffectsRender<GoTreeControl>(GameStateNodesProperty, SelectedNodeProperty);
@@ -37,6 +46,12 @@ public class GoTreeControl : Control
     {
         get => GetValue(SelectedNodeProperty);
         set => SetValue(SelectedNodeProperty, value);
+    }
+
+    public ICommand? NodeClickedCommand
+    {
+        get => GetValue(NodeClickedCommandProperty);
+        set => SetValue(NodeClickedCommandProperty, value);
     }
 
     public override void Render(DrawingContext context)
@@ -104,6 +119,9 @@ public class GoTreeControl : Control
         var yPixelOffset = targetY - selectedWorldY;
 
         var nodePositionsById = nodePositions.ToDictionary(p => p.Node.Id, p => p.Position);
+        _lastNodePositionsById = nodePositionsById;
+        _lastXPixelOffset = xPixelOffset;
+        _lastYPixelOffset = yPixelOffset;
         var cullingRect = new Rect(0, 0, bounds.Width, bounds.Height)
             .Inflate(NodeRadius + 1);
 
@@ -153,6 +171,47 @@ public class GoTreeControl : Control
 
             context.DrawEllipse(node.Id == SelectedNode.Id ? Brushes.Red : Brushes.Black, null, nodeRect);
         }
+    }
+
+    protected override void OnPointerPressed(PointerPressedEventArgs e)
+    {
+        if (!e.Pointer.IsPrimary || _lastNodePositionsById.Count == 0)
+        {
+            return;
+        }
+
+        var clickPoint = e.GetCurrentPoint(this).Position;
+        GameStateNode? clickedNode = null;
+        var minDistanceSquared = double.MaxValue;
+        var hitRadiusSquared = NodeRadius * NodeRadius;
+
+        foreach (var (nodeId, position) in _lastNodePositionsById)
+        {
+            if (!GameStateNodes.TryGetValue(nodeId, out var node))
+            {
+                continue;
+            }
+
+            var nodePoint = ToScreenPoint(position, _lastXPixelOffset, _lastYPixelOffset);
+            var dx = nodePoint.X - clickPoint.X;
+            var dy = nodePoint.Y - clickPoint.Y;
+            var distanceSquared = dx * dx + dy * dy;
+            if (distanceSquared > hitRadiusSquared || distanceSquared >= minDistanceSquared)
+            {
+                continue;
+            }
+
+            minDistanceSquared = distanceSquared;
+            clickedNode = node;
+        }
+
+        if (clickedNode is null || !(NodeClickedCommand?.CanExecute(clickedNode) ?? false))
+        {
+            return;
+        }
+
+        NodeClickedCommand.Execute(clickedNode);
+        e.Handled = true;
     }
 
     private static Point ToScreenPoint((int X, int Y) position, double xPixelOffset, double yPixelOffset)
