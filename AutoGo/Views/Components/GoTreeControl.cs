@@ -17,6 +17,7 @@ public class GoTreeControl : Control
     private const int BaseYStep = 30;
     private const int Padding = 10;
     private const int BaseNodeRadius = 5;
+    private const int MinNodeRadius = 3;
     private const double MinZoom = 0.4;
     private const double MaxZoom = 3.5;
     private const double ZoomFactor = 1.1;
@@ -25,7 +26,7 @@ public class GoTreeControl : Control
     private const double PreviewPadding = 10;
     private const double PreviewOffset = 14;
     private const double PreviewBoundaryMargin = 4;
-    private const double BoardGridIntervals = 18.0;
+    private const double BoardIntervalCount = 18.0;
     private const double StoneRadiusFactor = 0.4;
     private static readonly Cursor ArrowCursor = new(StandardCursorType.Arrow);
     private static readonly Cursor HandCursor = new(StandardCursorType.Hand);
@@ -84,7 +85,7 @@ public class GoTreeControl : Control
         var selectedNode = SelectedNode;
         var xStep = BaseXStep * _zoom;
         var yStep = BaseYStep * _zoom;
-        var nodeRadius = Math.Max(3, BaseNodeRadius * _zoom);
+        var nodeRadius = Math.Max(MinNodeRadius, BaseNodeRadius * _zoom);
         var longestPath = new List<GameStateNode>();
         foreach (var node in GameStateNodes.Where(n => n.Value.ChildrenIds.Count == 0))
         {
@@ -379,7 +380,7 @@ public class GoTreeControl : Control
             previewRect.Height - PreviewPadding * 2);
         context.DrawRectangle(MiniBoardBackground, MiniBoardPen, boardRect);
 
-        var gridStep = boardRect.Width / BoardGridIntervals;
+        var gridStep = boardRect.Width / BoardIntervalCount;
         for (var i = 0; i < 19; i++)
         {
             var xLine = boardRect.X + i * gridStep;
